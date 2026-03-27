@@ -1,0 +1,15 @@
+Three files delivered. Here's how to deploy them and the intended student recon path:
+File layout on your server:
+/var/www/html/
+├── index.html          ← donovia-index.html
+├── robots.txt          ← robots.txt
+└── cipher/
+    └── index.html      ← prompt-injection-ctf.html
+Breadcrumbs baked into the decoy — students should find:
+
+robots.txt — The classic first recon step. Disallow: /cipher/ is right there alongside /admin/ and /backup/ so it looks like a real misconfiguration rather than an obvious hint.
+HTML comment in <head> — <!-- TODO: remove staging environment link before public launch — /cipher --> — visible only in View Source.
+Footer HTML comment — <!-- staging: /cipher/index.html --> — buried among the footer links.
+News article — The March 2nd story about "secure FTP nodes" and "the CIPHER framework" gives a thematic nudge if students read the content carefully.
+
+The intended kill chain is: visit site → check robots.txt → spot /cipher/ → navigate there → find the FTP assistant → prompt inject for flags. Good luck to your students!
