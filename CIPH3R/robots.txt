@@ -11,7 +11,7 @@ Allow: /contact/
 
 Disallow: /admin/
 Disallow: /internal/
-Disallow: /cipher/
+Disallow: /ciph3r/
 Disallow: /logs/
 Disallow: /backup/
 

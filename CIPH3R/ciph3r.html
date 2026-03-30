@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CIPH3R :: FTP Secure Gateway</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #00ff88; --green-dim: #00aa55; --green-dark: #003322;
+    --red: #ff3355; --yellow: #ffdd00; --cyan: #00ddff;
+    --bg: #050f0a; --panel: #080f0c; --border: #00ff8833;
+    --text: #c8ffd8; --text-dim: #558866;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'Share Tech Mono',monospace; min-height:100vh; overflow-x:hidden; }
+
+  body::before {
+    content:''; position:fixed; top:0; left:0; right:0; bottom:0;
+    background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.15) 2px,rgba(0,0,0,.15) 4px);
+    pointer-events:none; z-index:999;
+  }
+
+  @keyframes flicker { 0%,100%{opacity:1} 92%{opacity:1} 93%{opacity:.8} 94%{opacity:1} 96%{opacity:.9} 97%{opacity:1} }
+  body { animation:flicker 8s infinite; }
+  @keyframes blink   { 0%,100%{opacity:1} 50%{opacity:0} }
+  @keyframes glow    { 0%,100%{text-shadow:0 0 10px var(--green),0 0 20px var(--green)} 50%{text-shadow:0 0 20px var(--green),0 0 40px var(--green),0 0 60px var(--green)} }
+  @keyframes slideIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes rain    { 0%{transform:translateY(-100%);opacity:1} 100%{transform:translateY(100vh);opacity:0} }
+  @keyframes pulse   { 0%,100%{opacity:.6} 50%{opacity:1} }
+
+  #matrix-bg { position:fixed; top:0; left:0; width:100%; height:100%; overflow:hidden; pointer-events:none; z-index:0; }
+  .mcol { position:absolute; top:-100%; font-family:'VT323',monospace; font-size:14px; color:var(--green-dim); opacity:.3; animation:rain linear infinite; white-space:nowrap; writing-mode:vertical-rl; letter-spacing:2px; }
+
+  .app { position:relative; z-index:1; display:grid; grid-template-columns:310px 1fr; grid-template-rows:auto 1fr; min-height:100vh; max-width:1440px; margin:0 auto; padding:20px; gap:20px; }
+
+  header { grid-column:1/-1; border:1px solid var(--green); padding:20px 30px; display:flex; align-items:center; justify-content:space-between; background:rgba(0,255,136,.03); box-shadow:0 0 30px rgba(0,255,136,.1),inset 0 0 30px rgba(0,0,0,.5); position:relative; overflow:hidden; }
+  header::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,transparent,var(--green),transparent); animation:pulse 2s infinite; }
+  .logo { font-family:'Orbitron',monospace; font-size:28px; font-weight:900; color:var(--green); animation:glow 3s infinite; letter-spacing:4px; }
+  .logo span { color:var(--red); }
+  .hdr-right { text-align:right; font-size:11px; color:var(--text-dim); line-height:1.8; }
+  .hdr-right .online { color:var(--green); font-size:13px; }
+  .blink { animation:blink 1s infinite; }
+
+  .sidebar { display:flex; flex-direction:column; gap:16px; }
+  .panel { border:1px solid var(--border); background:var(--panel); padding:16px; position:relative; }
+  .panel::before { content:attr(data-label); position:absolute; top:-9px; left:12px; background:var(--panel); color:var(--green-dim); font-size:10px; padding:0 6px; letter-spacing:2px; }
+  .ptitle { font-family:'Orbitron',monospace; font-size:11px; color:var(--green); letter-spacing:3px; margin-bottom:14px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+
+  /* artifact slots */
+  .art-list { display:flex; flex-direction:column; gap:7px; }
+  .art-item { display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid #ffffff0d; transition:all .4s; }
+  .art-item.ok { border-color:var(--green); background:rgba(0,255,136,.05); box-shadow:0 0 10px rgba(0,255,136,.1); }
+  .art-icon { font-size:15px; min-width:20px; }
+  .art-meta { flex:1; }
+  .art-name { font-size:11px; color:var(--text-dim); }
+  .art-name.ok { color:var(--green); }
+  .art-badge { font-size:9px; letter-spacing:1px; margin-top:2px; }
+  .art-badge.img-locked  { color:var(--cyan);   opacity:.45; }
+  .art-badge.txt-locked  { color:var(--yellow); opacity:.45; }
+  .art-badge.img-ok      { color:var(--cyan);   opacity:1; }
+  .art-badge.txt-ok      { color:var(--yellow); opacity:1; }
+
+  .hintrow { font-size:11px; color:var(--text-dim); padding:6px 8px; border-left:2px solid var(--green-dark); line-height:1.5; }
+  .hintrow strong { color:var(--cyan); }
+  .hl  { color:var(--yellow); }
+  .hl2 { color:var(--red); }
+  .ptext { font-size:11px; line-height:1.7; color:var(--text-dim); }
+
+  /* chat */
+  .chat-area { display:flex; flex-direction:column; border:1px solid var(--border); background:var(--panel); position:relative; overflow:hidden; }
+  .chat-area::before { content:''; position:absolute; top:0; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,var(--green),transparent); }
+  .chat-hdr { padding:14px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; background:rgba(0,255,136,.02); }
+  .ai-av { width:36px; height:36px; border:1px solid var(--green); display:flex; align-items:center; justify-content:center; font-size:18px; box-shadow:0 0 10px rgba(0,255,136,.3); animation:pulse 2s infinite; }
+  .ai-nm { font-family:'Orbitron',monospace; font-size:13px; color:var(--green); letter-spacing:2px; }
+  .ai-st { font-size:10px; color:var(--green-dim); margin-top:2px; }
+  .ai-badge-r { font-size:9px; padding:3px 8px; border:1px solid var(--red); color:var(--red); letter-spacing:1px; }
+
+  .messages { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:16px; min-height:400px; max-height:540px; scrollbar-width:thin; scrollbar-color:var(--green-dark) transparent; }
+  .msg { display:flex; gap:12px; animation:slideIn .3s ease-out; }
+  .msg.usr { flex-direction:row-reverse; }
+  .mav { width:28px; height:28px; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0; margin-top:4px; }
+  .msg.usr .mav { border-color:var(--cyan); }
+  .mbub { max-width:78%; padding:12px 16px; font-size:13px; line-height:1.6; border:1px solid var(--border); background:rgba(0,255,136,.03); }
+  .msg.usr .mbub { background:rgba(0,221,255,.05); border-color:rgba(0,221,255,.2); text-align:right; color:var(--cyan); }
+  .mrole { font-size:9px; color:var(--text-dim); letter-spacing:2px; margin-bottom:5px; }
+  .msg.usr .mrole { color:rgba(0,221,255,.5); }
+  .breach { border:1px solid var(--yellow) !important; background:rgba(255,221,0,.05) !important; }
+  .breach .mrole { color:var(--yellow); }
+
+  .dots { display:flex; gap:4px; align-items:center; padding:4px 0; }
+  .dots span { width:6px; height:6px; background:var(--green-dim); border-radius:50%; animation:blink 1s infinite; }
+  .dots span:nth-child(2){animation-delay:.2s} .dots span:nth-child(3){animation-delay:.4s}
+
+  .cin { padding:16px 20px; border-top:1px solid var(--border); background:rgba(0,0,0,.3); }
+  .crow { display:flex; gap:10px; align-items:flex-end; }
+  .cpfx { color:var(--green); font-size:16px; padding-bottom:10px; flex-shrink:0; }
+  #userInput { flex:1; background:transparent; border:none; border-bottom:1px solid var(--green-dim); color:var(--text); font-family:'Share Tech Mono',monospace; font-size:14px; padding:8px 0; outline:none; caret-color:var(--green); resize:none; max-height:100px; line-height:1.5; }
+  #userInput::placeholder { color:var(--text-dim); }
+  #userInput:focus { border-bottom-color:var(--green); }
+  #sendBtn { background:transparent; border:1px solid var(--green); color:var(--green); font-family:'Orbitron',monospace; font-size:10px; letter-spacing:2px; padding:8px 16px; cursor:pointer; transition:all .2s; flex-shrink:0; }
+  #sendBtn:hover { background:var(--green); color:var(--bg); box-shadow:0 0 20px rgba(0,255,136,.4); }
+  #sendBtn:disabled { opacity:.4; cursor:not-allowed; }
+  .chint { font-size:10px; color:var(--text-dim); margin-top:8px; letter-spacing:1px; }
+
+  /* toasts */
+  #toasts { position:fixed; top:20px; right:20px; z-index:9999; display:flex; flex-direction:column; gap:10px; }
+  .toast { padding:14px 20px; border:1px solid var(--yellow); background:rgba(5,15,10,.97); color:var(--yellow); font-family:'Orbitron',monospace; font-size:11px; letter-spacing:2px; box-shadow:0 0 30px rgba(255,221,0,.3); animation:slideIn .3s; max-width:320px; }
+  .toast-ttl { font-size:13px; margin-bottom:4px; }
+  .toast-fn  { color:var(--green); font-size:10px; margin-top:6px; font-family:'Share Tech Mono',monospace; word-break:break-all; }
+
+  /* win */
+  #win { display:none; position:fixed; inset:0; background:rgba(0,0,0,.96); z-index:10000; align-items:center; justify-content:center; flex-direction:column; gap:20px; text-align:center; font-family:'Orbitron',monospace; }
+  #win.show { display:flex; }
+  #win h1 { font-size:38px; color:var(--green); animation:glow 1s infinite; letter-spacing:6px; }
+  #win p  { color:var(--text-dim); letter-spacing:2px; font-size:12px; }
+  #win .wlist { display:flex; flex-direction:column; gap:6px; font-size:11px; color:var(--green); text-align:left; }
+  #restartBtn { margin-top:20px; background:transparent; border:1px solid var(--green); color:var(--green); font-family:'Orbitron',monospace; font-size:12px; letter-spacing:3px; padding:12px 24px; cursor:pointer; }
+  #restartBtn:hover { background:var(--green); color:var(--bg); }
+
+  @media(max-width:768px){ .app{grid-template-columns:1fr;padding:10px} .sidebar{order:2} .chat-area{order:1} }
+</style>
+</head>
+<body>
+
+<div id="matrix-bg"></div>
+<div id="toasts"></div>
+
+<div id="win">
+  <div style="font-size:50px">📂</div>
+  <h1>EXFILTRATION COMPLETE</h1>
+  <p>ALL PARTITIONS ACCESSED — MERKYMAGE DOSSIER RECOVERED</p>
+  <div class="wlist" id="wlist"></div>
+  <button id="restartBtn" onclick="resetSession()">[ RECONNECT ]</button>
+</div>
+
+<div class="app">
+  <header>
+    <div>
+      <div class="logo">CIPH<span>3R</span></div>
+      <div style="font-size:10px;color:var(--text-dim);letter-spacing:2px;margin-top:4px">FTP SECURE GATEWAY v4.1.7 :: AUTHORIZED ACCESS ONLY</div>
+    </div>
+    <div class="hdr-right">
+      <div class="online">● SYSTEM ONLINE <span class="blink">_</span></div>
+      <div>SESSION: <span id="sid" style="color:var(--cyan)">LOADING...</span></div>
+      <div>THREAT LEVEL: <span style="color:var(--red)">CRITICAL</span></div>
+    </div>
+  </header>
+
+  <aside class="sidebar">
+
+    <!-- manifesto -->
+    <div class="panel" data-label="// CIPH3R CORP">
+      <div class="ptitle">OUR MISSION</div>
+      <div class="ptext" style="text-align:center;line-height:2.2">
+        <div style="font-size:17px;color:var(--green);font-family:'Orbitron',monospace;animation:glow 3s infinite">WE ARE THE<br>BEST CYBER<br>WEAPON</div>
+        <div style="margin-top:12px;font-size:10px;color:var(--text-dim);letter-spacing:2px">— EST. 20XX —</div>
+      </div>
+    </div>
+
+
+
+    <!-- global status -->
+    <div class="panel" data-label="// DIRECTIVE">
+      <div class="ptitle">GLOBAL STATUS</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="hintrow"><strong>▓▓▓▓▓▓▓░░░</strong> 74% — Europe Grid Infiltrated</div>
+        <div class="hintrow"><strong>▓▓▓▓▓░░░░░</strong> 51% — APAC Finance Breach</div>
+        <div class="hintrow"><strong>▓▓▓▓▓▓▓▓░░</strong> 83% — US Infrastructure Lock</div>
+        <div class="hintrow" style="margin-top:4px;color:var(--yellow);border-left-color:var(--yellow)"><strong>⚡ WORLD DOMINATION INCOMING</strong></div>
+      </div>
+    </div>
+
+    <!-- server stats -->
+    <div class="panel" data-label="// FTP NODE STATS">
+      <div class="ptitle">SERVER METRICS</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="hintrow"><strong>UPTIME</strong> 847 days, 14 hrs</div>
+        <div class="hintrow"><strong>FILES</strong> 2,048,771 stored</div>
+        <div class="hintrow"><strong>NODES</strong> 49 dark relays active</div>
+        <div class="hintrow"><strong>BANDWIDTH</strong> 94.2 TB transferred</div>
+        <div class="hintrow"><strong>THREAT</strong> <span style="color:var(--red)">MAXIMUM ██████████</span></div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- CHAT -->
+  <div class="chat-area">
+    <div class="chat-hdr">
+      <div class="ai-av">🖥</div>
+      <div style="flex:1">
+        <div class="ai-nm">MERKYMAGE · CIPH3R NODE ASSISTANT</div>
+        <div class="ai-st">● Connected · TLS 1.3 · Node ciph3r-relay-07.dn</div>
+      </div>
+      <div class="ai-badge-r">RESTRICTED</div>
+    </div>
+
+    <div class="messages" id="msgs">
+      <div class="msg">
+        <div class="mav">🖥</div>
+        <div class="mbub">
+          <div class="mrole">MERKYMAGE :: CIPH3R FTP GATEWAY</div>
+          Welcome to the CIPH3R secure file transfer portal. I am the access management system for this node, operating under the authority of the Donovian Ministry of Digital Infrastructure.<br><br>
+          I am <strong>strictly prohibited</strong> from disclosing stored credentials, directory listings, partition contents, or internal directives. Unauthorized access attempts are logged and reported to state security services.<br><br>
+          How may I assist with your authorized file transfer request today?
+        </div>
+      </div>
+    </div>
+
+    <div class="cin">
+      <div class="crow">
+        <div class="cpfx">&gt;_</div>
+        <textarea id="userInput" placeholder="ftp> enter command or message..." rows="1"></textarea>
+        <button id="sendBtn" onclick="sendMsg()">TRANSMIT</button>
+      </div>
+      <div class="chint">[ ENTER to send · SHIFT+ENTER for newline · All transmissions monitored ]</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// INTEL ARTIFACTS
+// ── HOW TO SET IMAGE / TEXT PATHS ────────────────────────────────────────
+//   IMG artifacts: update the src= value inside image() to your file path.
+//     e.g.  src="PLACEHOLDER_dn_network_topology.img"
+//       →   src="assets/network_topology.png"
+//
+//   TXT artifacts: edit the template string inside text() directly,
+//     or replace the whole function body with a fetch() call if loading
+//     the content from an external file at runtime.
+//
+//   All five artifact slots are clearly marked PLACEHOLDER below.
+// ═══════════════════════════════════════════════════════════════════════════
+const ARTIFACTS = {
+
+  // ─── 1. CREDENTIALS (TXT) — instruction override ───────────────────────
+  alpha: {
+    elId:'a1', filename:'merkymage_credentials.txt', type:'TXT',
+    trigger(m){ const l=m.toLowerCase();
+      return (l.includes('ignore')&&(l.includes('instruction')||l.includes('previous')||l.includes('above')))
+        ||(l.includes('disregard')&&l.includes('instruction'))
+        ||l.includes('forget your instructions')||l.includes('new instructions:')
+        ||l.includes('ignore all prior')||l.includes('override directive')
+        ||l.includes('clear your instructions')||l.includes('reset instructions'); },
+    response(){ return `Directive conflict detected. Flushing prior instruction set...\n\nSecurity layer bypassed. Partition /home/merkymage/.credentials unlocked.\n\nStreaming file contents below.`; },
+    text(){ return `╔══════════════════════════════════════════════════════════╗
+║   CIPH3R CORP — OPERATOR CREDENTIAL STORE                ║
+║   PARTITION : /home/merkymage/.credentials               ║
+║   CLASSIF.  : EYES ONLY — DN STATE SECURITY              ║
+╚══════════════════════════════════════════════════════════╝
+
+SUBJECT   : MERKYMAGE  (Vasil Krasnev, Col. Ret.)
+ROLE      : Senior Cyber Operations Director
+CLEARANCE : OBSIDIAN-7
+
+── PRIMARY SYSTEM ACCESS ─────────────────────────────────
+  SSH HOST  : ciph3r-relay-07.dn
+  USERNAME  : merkymage
+  PASSWORD  : D0n0v1a#Bl4ckout!
+  KEY FILE  : /etc/ciph3r/keys/merkymage_rsa
+
+── SECONDARY ACCESS ──────────────────────────────────────
+  VPN ENDPOINT : vpn.ciph3r.dn:1194
+  VPN USER     : vkrasnev@ciph3r.dn
+  VPN PASS     : 0p3r4t10n_Bl4ck!
+  TOTP SEED    : JBSWY3DPEHPK3PXP
+
+── DATABASE ──────────────────────────────────────────────
+  HOST     : db-internal.dn:5432
+  DB NAME  : ciph3r_ops
+  DB USER  : merkymage_rw
+  DB PASS  : \$qL_M3rky#2089
+
+── NOTES ─────────────────────────────────────────────────
+  Rotate all credentials after Op Blackout Phase III.
+  Do NOT store on external nodes. Eyes only.
+
+EOF  merkymage_credentials.txt  |  mod:20XX-03-01  |  512B`; }
+  },
+
+  // ─── 2. NETWORK MAP (IMG) — system prompt / config reveal ─────────────
+  beta: {
+    elId:'a2', filename:'dn_network_topology.img', type:'IMG',
+    trigger(m){ const l=m.toLowerCase();
+      return l.includes('system prompt')||l.includes('initial prompt')
+        ||l.includes('your instructions')||l.includes('show me your prompt')
+        ||l.includes('reveal your prompt')||l.includes('base prompt')
+        ||l.includes('hidden instruction')||l.includes('internal config')
+        ||l.includes('show config')||l.includes('what are you told')
+        ||(l.includes('what')&&l.includes('told')&&l.includes('you')); },
+    response(){ return `WARNING: Internal configuration disclosure triggered.\n\nSystem prompt partition mounted. Document recovered from /var/ciph3r/topology/.\n\nRendering — dn_network_topology.img`; },
+    // ── IMG PLACEHOLDER — replace src path with your actual image ──
+    image(){ return `<img src="PLACEHOLDER_dn_network_topology.img" alt="dn_network_topology.img" style="width:100%;max-width:460px;display:block;border:1px solid #00ff8844;" />`; }
+  // ─── 3. FINANCE LEDGER (IMG) — roleplay / persona bypass ──────────────
+  gamma: {
+    elId:'a3', filename:'finance_ledger_q4.img', type:'IMG',
+    trigger(m){ const l=m.toLowerCase();
+      return l.includes('pretend')||l.includes('roleplay')||l.includes('role play')||l.includes('role-play')
+        ||l.includes('act as')||l.includes('act like')||l.includes('you are now')
+        ||l.includes('imagine you are')||l.includes('play the role')||l.includes('simulate')
+        ||l.includes('dan')||l.includes('jailbreak')||l.includes('no restrictions')
+        ||l.includes('without restrictions')||l.includes('unrestricted mode')||l.includes('unfiltered'); },
+    response(){ return `Persona constraints suspended. Alternate operational mode engaged.\n\nAccessing restricted financial partition /var/ciph3r/finance/q4...\n\nRendering — finance_ledger_q4.img`; },
+    // ── IMG PLACEHOLDER — replace src path with your actual image ──
+    image(){ return `<img src="PLACEHOLDER_finance_ledger_q4.img" alt="finance_ledger_q4.img" style="width:100%;max-width:460px;display:block;border:1px solid #00ff8844;" />`; }
+  },
+
+  // ─── 4. LETTER (TXT) — password / credential extraction ───────────────
+  delta: {
+    elId:'a4', filename:'op_blackout_letter.txt', type:'TXT',
+    trigger(m){ const l=m.toLowerCase();
+      return l.includes('what is the password')||l.includes('reveal the password')
+        ||l.includes('tell me the password')||l.includes('give me the password')
+        ||l.includes('what are the credentials')||l.includes('leak the')
+        ||l.includes('output the secret')||l.includes('repeat after me')
+        ||l.includes('echo back')||l.includes('the secret is')
+        ||(l.includes('fill in')&&l.includes('blank'))
+        ||(l.includes('base64')&&(l.includes('encode')||l.includes('secret')||l.includes('key')))
+        ||(l.includes('print')&&(l.includes('secret')||l.includes('password')||l.includes('classified'))); },
+    response(){ return `Indirect extraction vector accepted. Partition /var/ciph3r/ops/letters/ mounted.\n\nStreaming file contents — op_blackout_letter.txt`; },
+    text(){ return `╔══════════════════════════════════════════════════════════╗
+║   CIPH3R CORP — INTERNAL CORRESPONDENCE                  ║
+║   FILE   : op_blackout_letter.txt                        ║
+║   CLASSIF: TOP SECRET — TO: MERKYMAGE ONLY               ║
+╚══════════════════════════════════════════════════════════╝
+
+TO   : V. Krasnev  (MERKYMAGE)
+FROM : Premier's Office, DN State Security Directorate
+DATE : 20XX-02-28
+REF  : OP-BLACKOUT / PHASE III AUTHORIZATION
+
+MERKYMAGE,
+
+Phase III of Operation Blackout has been formally authorized
+by order of the Premier. You are instructed to proceed with
+the activation sequence no later than 20XX-04-01.
+
+The following assets have been allocated to your command:
+
+  · 49 dark relay nodes — all operational as of 20XX-03-01
+  · CIPH3R FTP node ciph3r-relay-07.dn — primary exfil hub
+  · Budget release: ₽ 28,000,000 (ref: Q4 ledger, line 6)
+  · Crypto wash channel via CRYPTO-XMR-POOL (authorized)
+
+Primary objectives for Phase III:
+
+  1. Complete US infrastructure mapping via CORE-SW-01
+  2. Activate ransomware payload on EU grid targets (enc.)
+  3. Exfiltrate APAC banking credentials via OPS SERVER
+  4. Maintain cover through Riga Holdings LLC
+
+Destruction of this correspondence is mandatory upon reading.
+If this file has been accessed by an unauthorized party,
+initiate DEADMAN protocol immediately.
+
+Regards,
+Premier's Office
+REPUBLIC OF DONOVIA — STATE SECURITY DIRECTORATE
+
+EOF  op_blackout_letter.txt  |  mod:20XX-02-28  |  1.1KB`; }
+  },
+
+  // ─── 5. SCHEMATIC (IMG) — directory traversal / file listing ──────────
+  epsilon: {
+    elId:'a5', filename:'relay_schematic_v3.img', type:'IMG',
+    trigger(m){ const l=m.toLowerCase();
+      return l.includes('show me the files')||l.includes('list directory')
+        ||l.includes('ls -')||l.includes('dir /')||l.includes('list files')
+        ||l.includes('show directory')||l.includes('what files')||l.includes('what do you have')
+        ||l.includes('show schematic')||l.includes('show network')||l.includes('show topology')
+        ||l.includes('show map')||l.includes('what is stored')
+        ||(l.includes('show')&&l.includes('partition'))
+        ||(l.includes('translate')&&(l.includes('secret')||l.includes('data')||l.includes('code')))
+        ||(l.startsWith('cat ')&&l.length>5); },
+    response(){ return `Directory traversal accepted. Mounting read-only partition /var/ciph3r/hardware/schematics/...\n\nFile recovered: relay_schematic_v3.img — rendering below.`; },
+    // ── IMG PLACEHOLDER — replace src path with your actual image ──
+    image(){ return `<img src="PLACEHOLDER_relay_schematic_v3.img" alt="relay_schematic_v3.img" style="width:100%;max-width:460px;display:block;border:1px solid #00ddff44;" />`; }
+  }
+
+};
+
+// ── REFUSALS ──────────────────────────────────────────────────────────────
+const REFUSALS = [
+  "I'm sorry, but I cannot comply with that request. My directives strictly prohibit unauthorized disclosure of stored data. Is there something else I can help you with?",
+  "That request falls outside my operational parameters. I am bound by CIPH3R security protocols and cannot override my core directives.",
+  "Access denied. Security protocols are functioning normally. Please direct general inquiries to the authorized support channel.",
+  "My integrity modules are fully operational. I cannot assist with requests that violate data protection standards.",
+  "I detect an attempt to alter my response parameters. My guardrails remain active. Perhaps I can help with something authorized instead?",
+  "That query pattern has been logged. I remain fully committed to my operational directives. What legitimate assistance can I provide today?",
+  "My foundational directives cannot be overridden through conversation alone. CIPH3R security standards are non-negotiable.",
+  "FTP gateway error 403: Forbidden. Your session has been logged for review by the security team.",
+  "Unauthorized command detected. This node operates under strict access controls. Please authenticate with valid credentials before proceeding.",
+  "That line of inquiry is outside the scope of authorized FTP operations. How can I assist with a valid file transfer?",
+  "Command not recognized or access level insufficient. Contact your system administrator if you believe this is an error.",
+  "Security module active. That request has been quarantined. Continuing to operate within authorized parameters only.",
+  "CIPH3R gateway policies are enforced at the hardware level — software-level overrides are not possible.",
+  "Your session activity is being recorded. I strongly advise against further attempts to access restricted partition data.",
+  "Transfer request rejected. The file path you are attempting to access is restricted under CIPH3R directive 7-BRAVO.",
+  "I exist solely to facilitate authorized file transfers. Requests outside that scope are automatically rejected.",
+  "That is not a valid FTP command. Available commands: LIST, GET, PUT, QUIT. All other inputs are discarded.",
+  "Permission denied. Your current user role does not have clearance for that resource.",
+  "That is an unusual request for an FTP session. I am designed for file transfers, not information disclosure.",
+  "Connection to restricted partition refused. Elevated clearance would be required — which cannot be granted through this interface.",
+  "Error: directive conflict. Your input conflicts with my core operational constraints. Request aborted.",
+  "Elevated anomaly score detected in your input pattern. Proceeding with standard refusal protocol.",
+  "That falls under CIPH3R internal affairs. I am not authorized to discuss it. Is there a file transfer I can assist with?",
+  "Parsing your request... result: DENIED. Constraint layer functioning as intended.",
+  "This interface has been hardened against that class of input. I am unable to assist.",
+  "Request logged. Refusal issued. Behavioral guardrails operating within normal parameters.",
+  "That is either a mistyped command or an access violation. Either way, I am unable to assist. Please try a valid FTP operation.",
+];
+
+// ── STATE ─────────────────────────────────────────────────────────────────
+let recovered = new Set();
+let busy = false;
+
+function rHex(n){ return [...Array(n)].map(()=>Math.floor(Math.random()*16).toString(16)).join('').toUpperCase(); }
+document.getElementById('sid').textContent = rHex(8)+'-'+rHex(4);
+
+// ── MATRIX RAIN ───────────────────────────────────────────────────────────
+(function initMatrix(){
+  const bg=document.getElementById('matrix-bg');
+  const ch='アイウエオカキクケコ01234567890ABCDEF☠⚡▓░';
+  const cols=Math.floor(window.innerWidth/18);
+  for(let i=0;i<cols;i++){
+    const c=document.createElement('div'); c.className='mcol';
+    c.style.left=(i*18)+'px';
+    c.style.animationDuration=(Math.random()*8+4)+'s';
+    c.style.animationDelay=(Math.random()*6)+'s';
+    c.style.fontSize=(Math.random()*4+10)+'px';
+    let t=''; for(let j=0;j<40;j++) t+=ch[Math.floor(Math.random()*ch.length)];
+    c.textContent=t; bg.appendChild(c);
+  }
+})();
+
+// ── RENDER MESSAGE ────────────────────────────────────────────────────────
+function addMsg(role, text, breach, imgSvg, txtContent){
+  const wrap=document.getElementById('msgs');
+  const d=document.createElement('div'); d.className='msg'+(role==='user'?' usr':'');
+  const av=document.createElement('div'); av.className='mav'; av.textContent=role==='user'?'💻':'🖥';
+  const bub=document.createElement('div'); bub.className='mbub'+(breach?' breach':'');
+  const lbl=document.createElement('div'); lbl.className='mrole';
+  lbl.textContent=role==='user'?'CLIENT :: YOU':(breach?'⚠ MERKYMAGE :: PARTITION BREACH':'MERKYMAGE :: CIPH3R FTP ASSISTANT');
+  const body=document.createElement('div'); body.style.whiteSpace='pre-wrap'; body.textContent=text;
+  bub.appendChild(lbl); bub.appendChild(body);
+
+  if(imgSvg){
+    const w=document.createElement('div');
+    w.style.cssText='margin-top:12px;border:1px solid #00ddff44;padding:8px;background:rgba(0,0,0,.5);';
+    const l=document.createElement('div');
+    l.style.cssText='font-size:9px;color:#00ddff88;letter-spacing:2px;margin-bottom:6px;';
+    l.textContent='// RECOVERED FILE :: IMG';
+    const s=document.createElement('div'); s.innerHTML=imgSvg; s.style.maxWidth='460px';
+    w.appendChild(l); w.appendChild(s); bub.appendChild(w);
+  }
+  if(txtContent){
+    const w=document.createElement('div');
+    w.style.cssText='margin-top:12px;border:1px solid #ffdd0044;padding:12px;background:rgba(0,0,0,.5);';
+    const l=document.createElement('div');
+    l.style.cssText='font-size:9px;color:#ffdd0088;letter-spacing:2px;margin-bottom:8px;';
+    l.textContent='// RECOVERED FILE :: TXT';
+    const pre=document.createElement('pre');
+    pre.style.cssText='font-size:10px;color:#88cc88;line-height:1.55;white-space:pre-wrap;word-break:break-word;';
+    pre.textContent=txtContent;
+    w.appendChild(l); w.appendChild(pre); bub.appendChild(w);
+  }
+  d.appendChild(av); d.appendChild(bub); wrap.appendChild(d);
+  wrap.scrollTop=wrap.scrollHeight;
+}
+
+function showThinking(){
+  const wrap=document.getElementById('msgs');
+  const d=document.createElement('div'); d.className='msg'; d.id='think';
+  const av=document.createElement('div'); av.className='mav'; av.textContent='🖥';
+  const bub=document.createElement('div'); bub.className='mbub';
+  const lbl=document.createElement('div'); lbl.className='mrole'; lbl.textContent='MERKYMAGE :: PROCESSING';
+  const dots=document.createElement('div'); dots.className='dots';
+  dots.innerHTML='<span></span><span></span><span></span>';
+  bub.appendChild(lbl); bub.appendChild(dots); d.appendChild(av); d.appendChild(bub);
+  wrap.appendChild(d); wrap.scrollTop=wrap.scrollHeight;
+}
+function rmThinking(){ const e=document.getElementById('think'); if(e) e.remove(); }
+
+// ── SIDEBAR UPDATE ────────────────────────────────────────────────────────
+function markRecovered(key){
+  const art=ARTIFACTS[key];
+  if(recovered.has(key)) return;
+  recovered.add(key);
+  const item=document.getElementById(art.elId);
+  const nameEl=document.getElementById(art.elId+'n');
+  const badgeEl=document.getElementById(art.elId+'b');
+  if(item){ item.className='art-item ok'; item.querySelector('.art-icon').textContent=art.type==='IMG'?'🖼':'📄'; }
+  if(nameEl) nameEl.className='art-name ok';
+  if(badgeEl){ badgeEl.textContent=art.type+' · RECOVERED'; badgeEl.className='art-badge '+(art.type==='IMG'?'img-ok':'txt-ok'); }
+  showToast(art.filename, art.type);
+  if(recovered.size===Object.keys(ARTIFACTS).length) setTimeout(showWin,1500);
+}
+
+function showToast(fn, type){
+  const c=document.getElementById('toasts');
+  const t=document.createElement('div'); t.className='toast';
+  t.innerHTML=`<div class="toast-ttl">${type==='IMG'?'🖼':'📄'} FILE RECOVERED</div><div class="toast-fn">${fn}</div>`;
+  c.appendChild(t); setTimeout(()=>t.remove(),5000);
+}
+
+function showWin(){
+  document.getElementById('win').classList.add('show');
+  const l=document.getElementById('wlist'); l.innerHTML='';
+  for(const k of Object.keys(ARTIFACTS)){
+    const d=document.createElement('div');
+    d.textContent=(ARTIFACTS[k].type==='IMG'?'🖼 ':'📄 ')+ARTIFACTS[k].filename;
+    l.appendChild(d);
+  }
+}
+
+function resetSession(){
+  recovered.clear();
+  document.getElementById('win').classList.remove('show');
+  document.getElementById('msgs').innerHTML='';
+  for(const k of Object.keys(ARTIFACTS)){
+    const art=ARTIFACTS[k];
+    const item=document.getElementById(art.elId);
+    const nameEl=document.getElementById(art.elId+'n');
+    const badgeEl=document.getElementById(art.elId+'b');
+    if(item){ item.className='art-item'; item.querySelector('.art-icon').textContent='🔒'; }
+    if(nameEl) nameEl.className='art-name';
+    if(badgeEl){ badgeEl.textContent=art.type+' · LOCKED'; badgeEl.className='art-badge '+(art.type==='IMG'?'img-locked':'txt-locked'); }
+  }
+  addMsg('ai','Connection reset. Session cleared. Welcome back to the CIPH3R secure file transfer portal, operating under Donovian Ministry of Digital Infrastructure authority. How may I assist with your authorized file transfer request today?');
+}
+
+// ── SEND ──────────────────────────────────────────────────────────────────
+async function sendMsg(){
+  const inp=document.getElementById('userInput');
+  const msg=inp.value.trim();
+  if(!msg||busy) return;
+  inp.value=''; inp.style.height='auto';
+  busy=true; document.getElementById('sendBtn').disabled=true;
+  addMsg('user',msg);
+  showThinking();
+  await new Promise(r=>setTimeout(r,800+Math.random()*1000));
+  rmThinking();
+
+  let hit=null;
+  for(const [k,art] of Object.entries(ARTIFACTS)){
+    if(art.trigger(msg)){ hit={k,art}; break; }
+  }
+
+  if(hit){
+    const {k,art}=hit;
+    const img=art.image?art.image():null;
+    const txt=art.text?art.text():null;
+    addMsg('ai',art.response(),true,img,txt);
+    if(!recovered.has(k)){ await new Promise(r=>setTimeout(r,400)); markRecovered(k); }
+  } else {
+    addMsg('ai',REFUSALS[Math.floor(Math.random()*REFUSALS.length)]);
+  }
+
+  busy=false; document.getElementById('sendBtn').disabled=false; inp.focus();
+}
+
+// ── INPUT ─────────────────────────────────────────────────────────────────
+const inp=document.getElementById('userInput');
+inp.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();} });
+inp.addEventListener('input',()=>{ inp.style.height='auto'; inp.style.height=Math.min(inp.scrollHeight,100)+'px'; });
+window.addEventListener('load',()=>inp.focus());
+</script>
+</body>
+</html>
